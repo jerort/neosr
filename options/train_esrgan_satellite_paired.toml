@@ -1,0 +1,91 @@
+# ESRGAN training config for multispectral satellite TIFFs (paired LQ/GT).
+#
+# Per-experiment knobs:
+#   - num_in_ch / num_out_ch / mssim_opt.in_channels: set ALL THREE to your band count.
+#   - dataroot_gt / dataroot_lq: point to your TIFF folders. Filenames must match.
+#   - rgb_indices (commented sections): band indices for R, G, B in your data.
+#
+# v1 loss stack is Strategy-C only (channel-agnostic, no pretrained nets).
+# Strategy-A wrappers for VGG/FDL/DISTS are available — see commented section.
+
+name = "train_esrgan_satellite_paired"
+model_type = "image"
+scale = 4
+use_amp = true
+bfloat16 = true
+fast_matmul = true
+
+[datasets.train]
+type = "paired_multispectral"
+dataroot_gt = 'C:\datasets\satellite\gt\'
+dataroot_lq = 'C:\datasets\satellite\lq\'
+patch_size = 64
+batch_size = 8
+augmentation = [ "none", "mixup", "cutmix", "resizemix", "cutblur" ]
+aug_prob = [ 0.5, 0.1, 0.1, 0.1, 0.5 ]
+
+[datasets.val]
+name = "val"
+type = "paired_multispectral"
+dataroot_gt = 'C:\datasets\satellite\val\gt\'
+dataroot_lq = 'C:\datasets\satellite\val\lq\'
+
+[val]
+val_freq = 1000
+
+[path]
+
+[network_g]
+type = "esrgan"
+num_in_ch = 6     # ← MATCH YOUR BAND COUNT
+num_out_ch = 6    # ← MATCH YOUR BAND COUNT
+
+# Discriminator disabled in v1. To re-enable, verify the disc arch accepts
+# num_in_ch and supervise only RGB-equivalent bands or use a custom disc.
+
+[train]
+ema = 0.999
+clamp = false
+# wavelet_guided disabled until verified for arbitrary channel count.
+
+[train.optim_g]
+type = "adan_sf"
+lr = 8e-4
+betas = [ 0.98, 0.92, 0.99 ]
+weight_decay = 0.01
+schedule_free = true
+warmup_steps = 1600
+
+# ---- Losses: Strategy C (channel-agnostic, no pretrained nets) ----
+
+[train.l1_opt]
+type = "L1Loss"
+loss_weight = 1.0
+
+[train.mssim_opt]
+type = "mssim_loss"
+in_channels = 6   # ← MATCH YOUR BAND COUNT
+loss_weight = 1.0
+
+[train.ldl_opt]
+type = "ldl_loss"
+criterion = "l1"
+loss_weight = 1.0
+
+# ---- Strategy A (RGB-subset) wrappers — uncomment after baseline trains ----
+# [train.perceptual_opt]
+# type = "rgb_subset_loss"
+# rgb_indices = [3, 2, 1]   # ← your data's [R, G, B] band indices
+# loss_weight = 0.5
+# inner = { type = "vgg_perceptual_loss", criterion = "huber" }
+
+# [train.fdl_opt]
+# type = "rgb_subset_loss"
+# rgb_indices = [3, 2, 1]
+# loss_weight = 0.75
+# inner = { type = "fdl_loss", model = "dinov2" }
+
+[logger]
+total_iter = 1000000
+save_checkpoint_freq = 1000
+use_tb_logger = true

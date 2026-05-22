@@ -1,0 +1,72 @@
+# ESRGAN training config for multispectral satellite TIFFs (on-the-fly LQ).
+#
+# Same per-experiment knobs as the paired config plus the OTF degradation
+# knobs at the bottom of [datasets.train]. The OTF degradations here are
+# channel-agnostic (gaussian blur + downscale + gaussian noise) — JPEG,
+# sinc, and USM are intentionally omitted as 8-bit-photography artifacts.
+
+name = "train_esrgan_satellite_otf"
+model_type = "image"
+scale = 4
+use_amp = true
+bfloat16 = true
+fast_matmul = true
+
+[datasets.train]
+type = "otf_multispectral"
+dataroot_gt = 'C:\datasets\satellite\hq\'
+patch_size = 64
+batch_size = 8
+augmentation = [ "none", "mixup", "cutmix", "resizemix", "cutblur" ]
+aug_prob = [ 0.5, 0.1, 0.1, 0.1, 0.5 ]
+# OTF degradation knobs:
+blur_sigma_range = [ 0.2, 1.5 ]
+noise_sigma_range = [ 0.0, 0.02 ]
+downscale_mode = "bicubic"        # "bicubic" | "bilinear" | "area" | "nearest"
+
+[datasets.val]
+name = "val"
+type = "paired_multispectral"
+dataroot_gt = 'C:\datasets\satellite\val\gt\'
+dataroot_lq = 'C:\datasets\satellite\val\lq\'
+
+[val]
+val_freq = 1000
+
+[path]
+
+[network_g]
+type = "esrgan"
+num_in_ch = 6     # ← MATCH YOUR BAND COUNT
+num_out_ch = 6    # ← MATCH YOUR BAND COUNT
+
+[train]
+ema = 0.999
+clamp = false
+
+[train.optim_g]
+type = "adan_sf"
+lr = 8e-4
+betas = [ 0.98, 0.92, 0.99 ]
+weight_decay = 0.01
+schedule_free = true
+warmup_steps = 1600
+
+[train.l1_opt]
+type = "L1Loss"
+loss_weight = 1.0
+
+[train.mssim_opt]
+type = "mssim_loss"
+in_channels = 6   # ← MATCH YOUR BAND COUNT
+loss_weight = 1.0
+
+[train.ldl_opt]
+type = "ldl_loss"
+criterion = "l1"
+loss_weight = 1.0
+
+[logger]
+total_iter = 1000000
+save_checkpoint_freq = 1000
+use_tb_logger = true

@@ -24,6 +24,7 @@ dependencies = [
     "pywavelets>=1.8.0",
     "scipy>=1.15.2",
     "tb-nightly>=2.20.0a",
+    "tifffile>=2024.0.0",
     "torch>=2.6",
     "torchvision>=0.21",
     "tqdm>=4.67.1",
