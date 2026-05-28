@@ -1,0 +1,74 @@
+# GCP variant of train_esrgan_satellite_otf.toml — Linux dataset paths + 200k iters.
+#
+# Same model as the local config (4-band HD15, x2, bf16) but:
+#   - dataroot paths point at /home/jupyter/datasets/... (the instance layout)
+#   - total_iter = 200000 (matches the prior 8-bit base runs; perceptual/GAN
+#     fine-tunes were a separate 20k stage — see E3 model_config.xlsx)
+# bf16 is hardware-accelerated on the L4 (Ada); use an L4 (g2-*) instance.
+
+name = "train_esrgan_satellite_otf"
+model_type = "image"
+scale = 2
+use_amp = true
+bfloat16 = true
+fast_matmul = true
+
+[datasets.train]
+type = "otf_multispectral"
+dataroot_gt = '/home/jupyter/datasets/HD15_16bits_OTF/gt/'
+patch_size = 64
+batch_size = 8
+augmentation = [ "none", "mixup", "cutmix", "resizemix", "cutblur" ]
+aug_prob = [ 0.5, 0.1, 0.1, 0.1, 0.5 ]
+# OTF degradation knobs:
+blur_sigma_range = [ 0.2, 1.5 ]
+noise_sigma_range = [ 0.0, 0.02 ]
+downscale_mode = "bicubic"        # "bicubic" | "bilinear" | "area" | "nearest"
+
+[datasets.val]
+name = "val"
+type = "paired_multispectral"
+dataroot_gt = '/home/jupyter/datasets/HD15_16bits_OTF/val/gt/'
+dataroot_lq = '/home/jupyter/datasets/HD15_16bits_OTF/val/lq/'
+
+[val]
+val_freq = 1000
+
+[path]
+
+[network_g]
+type = "esrgan"
+num_in_ch = 4     # HD15: R, G, B, NIR
+num_out_ch = 4
+
+[train]
+ema = 0.999
+clamp = false
+
+[train.optim_g]
+type = "adan_sf"
+lr = 8e-4
+betas = [ 0.98, 0.92, 0.99 ]
+weight_decay = 0.01
+schedule_free = true
+warmup_steps = 1600
+
+[train.l1_opt]
+type = "L1Loss"
+loss_weight = 1.0
+
+[train.mssim_opt]
+type = "mssim_loss"
+in_channels = 4
+L = 1.0           # tiles are pre-scaled to fill [0,1] after /65535
+loss_weight = 1.0
+
+[train.ldl_opt]
+type = "ldl_loss"
+criterion = "l1"
+loss_weight = 1.0
+
+[logger]
+total_iter = 200000
+save_checkpoint_freq = 1000
+use_tb_logger = true
