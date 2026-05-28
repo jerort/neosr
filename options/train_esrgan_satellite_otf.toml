@@ -1,20 +1,21 @@
-# ESRGAN training config for multispectral satellite TIFFs (on-the-fly LQ).
+# ESRGAN OTF config for Airbus HD15 multispectral tiles (4-band R/G/B/NIR, ×2).
 #
-# Same per-experiment knobs as the paired config plus the OTF degradation
-# knobs at the bottom of [datasets.train]. The OTF degradations here are
-# channel-agnostic (gaussian blur + downscale + gaussian noise) — JPEG,
-# sinc, and USM are intentionally omitted as 8-bit-photography artifacts.
+# GT tiles = HD15 (15 cm), produced by SOTER/scripts/superresolution/generate_dataset_images_16bits.py
+# (per-band 99th-pct rescale into uint16 → read_tiff /65535 → [0,1]). LQ is degraded
+# on the fly to ~30 cm. At inference, scale the 30 cm Pleiades input with the SAME
+# per-band ceilings from that tiles' scale.json. Degradations are channel-agnostic
+# (gaussian blur + downscale + gaussian noise) — JPEG/sinc/USM omitted (8-bit artifacts).
 
 name = "train_esrgan_satellite_otf"
 model_type = "image"
-scale = 4
+scale = 2
 use_amp = true
 bfloat16 = true
 fast_matmul = true
 
 [datasets.train]
 type = "otf_multispectral"
-dataroot_gt = 'C:\datasets\satellite\hq\'
+dataroot_gt = 'D:\datasets\SOTER\ROI_SR\HD15_16bits_OTF\gt\'
 patch_size = 64
 batch_size = 8
 augmentation = [ "none", "mixup", "cutmix", "resizemix", "cutblur" ]
@@ -24,11 +25,13 @@ blur_sigma_range = [ 0.2, 1.5 ]
 noise_sigma_range = [ 0.0, 0.02 ]
 downscale_mode = "bicubic"        # "bicubic" | "bilinear" | "area" | "nearest"
 
+# Val = same areas as the 8-bit model, regenerated 4-band by
+# generate_val_images_16bits.py. Generate it BEFORE training, or this errors on empty dirs.
 [datasets.val]
 name = "val"
 type = "paired_multispectral"
-dataroot_gt = 'C:\datasets\satellite\val\gt\'
-dataroot_lq = 'C:\datasets\satellite\val\lq\'
+dataroot_gt = 'D:\datasets\SOTER\ROI_SR\HD15_16bits_OTF\val\gt\'
+dataroot_lq = 'D:\datasets\SOTER\ROI_SR\HD15_16bits_OTF\val\lq\'
 
 [val]
 val_freq = 1000
@@ -37,8 +40,8 @@ val_freq = 1000
 
 [network_g]
 type = "esrgan"
-num_in_ch = 6     # ← MATCH YOUR BAND COUNT
-num_out_ch = 6    # ← MATCH YOUR BAND COUNT
+num_in_ch = 4     # HD15: R, G, B, NIR
+num_out_ch = 4
 
 [train]
 ema = 0.999
@@ -58,7 +61,8 @@ loss_weight = 1.0
 
 [train.mssim_opt]
 type = "mssim_loss"
-in_channels = 6   # ← MATCH YOUR BAND COUNT
+in_channels = 4
+L = 1.0           # tiles are pre-scaled to fill [0,1] after /65535
 loss_weight = 1.0
 
 [train.ldl_opt]
