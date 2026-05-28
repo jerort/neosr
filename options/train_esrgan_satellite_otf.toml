@@ -55,10 +55,9 @@ weight_decay = 0.01
 schedule_free = true
 warmup_steps = 1600
 
-[train.l1_opt]
-type = "L1Loss"
-loss_weight = 1.0
-
+# Losses = report's best OTF model (otf_soft). mssim + ldl are channel-agnostic;
+# consistency / perceptual / dists / msswd are RGB-locked, so they run through the
+# rgb_subset wrapper on bands [0,1,2] = R,G,B (NIR not directly supervised). No L1/gan/fdl.
 [train.mssim_opt]
 type = "mssim_loss"
 in_channels = 4
@@ -70,7 +69,31 @@ type = "ldl_loss"
 criterion = "l1"
 loss_weight = 1.0
 
+[train.consistency_opt]
+type = "rgb_subset_loss"
+rgb_indices = [ 0, 1, 2 ]
+loss_weight = 0.8
+inner = { type = "consistency_loss" }
+
+[train.perceptual_opt]
+type = "rgb_subset_loss"
+rgb_indices = [ 0, 1, 2 ]
+loss_weight = 0.3
+inner = { type = "vgg_perceptual_loss", criterion = "huber" }
+
+[train.dists_opt]
+type = "rgb_subset_loss"
+rgb_indices = [ 0, 1, 2 ]
+loss_weight = 0.1
+inner = { type = "dists_loss" }
+
+[train.msswd_opt]
+type = "rgb_subset_loss"
+rgb_indices = [ 0, 1, 2 ]
+loss_weight = 0.05
+inner = { type = "msswd_loss" }
+
 [logger]
-total_iter = 1000000
+total_iter = 200000
 save_checkpoint_freq = 1000
 use_tb_logger = true
