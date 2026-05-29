@@ -10,6 +10,7 @@ num_in_ch / num_out_ch in the training config must match.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -57,5 +58,33 @@ def write_tiff(path: str | Path, arr: np.ndarray) -> None:
     arr = np.clip(arr, 0.0, 1.0)
     out = np.rint(arr * UINT16_MAX).astype(np.uint16)
     if out.ndim == 3 and out.shape[-1] == 1:
+        out = out[..., 0]
+    tifffile.imwrite(str(path), out)
+
+
+def write_tiff_dn(path: str | Path, arr: np.ndarray, ceilings: Sequence[float]) -> None:
+    """Write a float32 TIFF in raw DN units, undoing the per-band tile rescale.
+
+    The training tiles are produced by clip(DN, 0, c) / c * 65535 (see SOTER's
+    rescale_bands_to_uint16). read_tiff then divides by 65535, so the model works
+    in [0, 1] = DN / c. This inverts that last step: DN = value * c, per band,
+    using the same per-band `ceilings` (pct_ceilings) the tiles were built with.
+
+    `arr` is (H, W, C) in [0, 1]; len(ceilings) must equal C. Output is float32
+    (ceilings are floats) and preserves band count. DN is clipped at 0 only — the
+    upper bound is the band ceiling, but values can legitimately reach it.
+    Geospatial metadata is NOT carried.
+    """
+    arr = np.clip(arr, 0.0, 1.0)
+    if arr.ndim == 2:
+        arr = arr[..., None]
+    if arr.shape[-1] != len(ceilings):
+        msg = (
+            f"ceilings length {len(ceilings)} != band count {arr.shape[-1]}; "
+            "pick the right --scale-key or check scale.json"
+        )
+        raise ValueError(msg)
+    out = (arr * np.asarray(ceilings, dtype=np.float32)).astype(np.float32)
+    if out.shape[-1] == 1:
         out = out[..., 0]
     tifffile.imwrite(str(path), out)
