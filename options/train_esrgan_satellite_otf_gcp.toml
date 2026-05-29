@@ -41,6 +41,15 @@ type = "esrgan"
 num_in_ch = 4     # HD15: R, G, B, NIR
 num_out_ch = 4
 
+# Discriminator re-added (single-stage hybrid): the report's best model came from a
+# 2-stage recipe (otf_base WITH GAN -> otf_soft 20k softening, gan=0). We collapse it
+# to one run = otf_soft refinement losses + GAN throughout. The disc sees all 4 bands
+# (model feeds the full tensor to net_d; rgb_subset only wraps the listed losses), so
+# NIR gets adversarial supervision too — must be num_in_ch=4 or it crashes.
+[network_d]
+type = "unet"
+num_in_ch = 4     # HD15: R, G, B, NIR
+
 [train]
 ema = 0.999
 clamp = false
@@ -53,9 +62,17 @@ weight_decay = 0.01
 schedule_free = true
 warmup_steps = 1600
 
-# Losses = report's best OTF model (otf_soft). mssim + ldl are channel-agnostic;
+[train.optim_d]
+type = "adan_sf"
+lr = 1e-4
+betas = [ 0.98, 0.92, 0.99 ]
+weight_decay = 0.01
+schedule_free = true
+warmup_steps = 600
+
+# Losses = report's best OTF model (otf_soft) + GAN. mssim + ldl are channel-agnostic;
 # consistency / perceptual / dists / msswd are RGB-locked, so they run through the
-# rgb_subset wrapper on bands [0,1,2] = R,G,B (NIR not directly supervised). No L1/gan/fdl.
+# rgb_subset wrapper on bands [0,1,2] = R,G,B (NIR not directly supervised). No L1/fdl.
 [train.mssim_opt]
 type = "mssim_loss"
 in_channels = 4
@@ -90,6 +107,13 @@ type = "rgb_subset_loss"
 rgb_indices = [ 0, 1, 2 ]
 loss_weight = 0.05
 inner = { type = "msswd_loss" }
+
+# GAN on the full 4-band output. Weight kept low so the otf_soft losses stay dominant
+# (soft character); raise toward ~0.3 (report otf_base territory) if SR comes out smooth.
+[train.gan_opt]
+type = "gan_loss"
+gan_type = "bce"
+loss_weight = 0.1
 
 [logger]
 total_iter = 200000
