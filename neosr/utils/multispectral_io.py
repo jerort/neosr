@@ -43,3 +43,19 @@ def read_tiff_bytes(content: bytes) -> np.ndarray:
     elif arr.ndim == 3 and arr.shape[0] < arr.shape[-1] and arr.shape[0] <= 16:
         arr = np.transpose(arr, (1, 2, 0))
     return arr.astype(np.float32) / UINT16_MAX
+
+
+def write_tiff(path: str | Path, arr: np.ndarray) -> None:
+    """Inverse of read_tiff: take a float (H, W, C) array in [0, 1] and write a
+    uint16 TIFF, preserving channel count and 16-bit depth.
+
+    Values are clipped to [0, 1] and scaled by 65535. A single-channel array may
+    be (H, W) or (H, W, 1); the trailing axis is squeezed so it writes as a plain
+    grayscale TIFF. Geospatial metadata (CRS/transform) is NOT carried — this only
+    preserves pixel values, bands, and bit depth.
+    """
+    arr = np.clip(arr, 0.0, 1.0)
+    out = np.rint(arr * UINT16_MAX).astype(np.uint16)
+    if out.ndim == 3 and out.shape[-1] == 1:
+        out = out[..., 0]
+    tifffile.imwrite(str(path), out)
