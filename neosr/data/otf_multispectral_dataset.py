@@ -33,8 +33,14 @@ if TYPE_CHECKING:
 TIFF_SUFFIXES = (".tif", ".tiff", ".TIF", ".TIFF")
 
 
-def _gaussian_kernel1d(sigma: float, radius: int) -> torch.Tensor:
-    x = torch.arange(-radius, radius + 1, dtype=torch.float32)
+def _gaussian_kernel1d(
+    sigma: float, radius: int, device: torch.device | None = None
+) -> torch.Tensor:
+    # device is set explicitly (to the input's device, CPU in DataLoader workers):
+    # neosr sets the global default device to CUDA, and an implicit CUDA tensor
+    # allocation inside a forked worker raises "Cannot re-initialize CUDA in
+    # forked subprocess". Passing device= also bypasses that default-device override.
+    x = torch.arange(-radius, radius + 1, dtype=torch.float32, device=device)
     k = torch.exp(-0.5 * (x / sigma) ** 2)
     return k / k.sum()
 
@@ -44,7 +50,7 @@ def _apply_gaussian_blur(img: Tensor, sigma: float) -> Tensor:
     if sigma <= 1e-6:
         return img
     radius = max(1, int(3.0 * sigma))
-    kernel1d = _gaussian_kernel1d(sigma, radius)
+    kernel1d = _gaussian_kernel1d(sigma, radius, device=img.device)
     c = img.shape[0]
     kx = kernel1d.view(1, 1, 1, -1).expand(c, 1, 1, -1)
     ky = kernel1d.view(1, 1, -1, 1).expand(c, 1, -1, 1)
