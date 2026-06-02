@@ -701,9 +701,17 @@ class image(base):
 
         # error if NaN
         if torch.isnan(l_g_total):
+            # report which individual loss term(s) are non-finite, so the
+            # culprit is obvious instead of a generic abort.
+            offenders = []
+            for k, v in loss_dict.items():
+                if torch.is_tensor(v) and not torch.isfinite(v).all():
+                    offenders.append(f"{k}={v.detach().float().mean().item()}")
+            detail = ", ".join(offenders) if offenders else "(only l_g_total)"
             msg = f"""
                   {tc.red}
                   NaN found, aborting training. Make sure you're using a proper learning rate.
+                  Non-finite loss term(s): {detail}
                   If you have AMP enabled, try using bfloat16. For more information:
                   https://github.com/muslll/neosr/wiki/Configuration-Walkthrough
                   {tc.end}
