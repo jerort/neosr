@@ -7,7 +7,7 @@
 # (gaussian blur + downscale + gaussian noise) — JPEG/sinc/USM omitted (8-bit artifacts).
 
 name = "train_esrgan_satellite_otf"
-model_type = "image"
+model_type = "image_multispectral"   # 4-band-faithful validation (MS-SSIM + per-band PSNR)
 scale = 2
 use_amp = true
 bfloat16 = true
@@ -35,6 +35,15 @@ dataroot_lq = 'D:\datasets\SOTER\ROI_SR\HD15_16bits_OTF\val\lq\'
 
 [val]
 val_freq = 1000
+# Metrics are computed on the float 4-band tensors by image_multispectral (the
+# stock 8-bit/3-channel path would drop NIR). mssim = MS-SSIM (higher better);
+# psnr = mean over bands. Per-band PSNR (R,G,B,NIR) is also logged to TensorBoard.
+[val.metrics.mssim]
+type = "mssim"
+better = "higher"
+[val.metrics.psnr]
+type = "psnr"
+better = "higher"
 
 [path]
 
