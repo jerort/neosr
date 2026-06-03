@@ -22,7 +22,9 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from neosr.losses.dists_loss import dists_loss
 from neosr.losses.ssim_loss import mssim_loss
+from neosr.metrics.calculate import _ssim
 from neosr.models.image import image
 from neosr.utils import tc
 from neosr.utils.multispectral_io import write_tiff
@@ -33,8 +35,11 @@ from neosr.utils.registry import MODEL_REGISTRY
 class image_multispectral(image):
     """SISR model whose validation is N-band- and 16-bit-faithful."""
 
-    # Band labels for per-band PSNR logging; falls back to the index past these.
+    # Band labels for per-band metric logging; falls back to the index past these.
     _BAND_NAMES = ("R", "G", "B", "NIR")
+
+    def _band(self, c: int) -> str:
+        return self._BAND_NAMES[c] if c < len(self._BAND_NAMES) else str(c)
 
     def _get_mssim(self, channels: int) -> mssim_loss:
         # Cache one mssim_loss on the model device. L=1 because the tiles are in
@@ -44,6 +49,15 @@ class image_multispectral(image):
         if metric is None:
             metric = mssim_loss(in_channels=channels, L=1).to(self.device)
             self._mssim_metric = metric
+        return metric
+
+    def _get_dists(self) -> dists_loss:
+        # Cache one DISTS network (as_loss=False -> returns the distance, lower is
+        # better) so the VGG isn't rebuilt per tile. RGB-only by nature.
+        metric = getattr(self, "_dists_metric", None)
+        if metric is None:
+            metric = dists_loss(as_loss=False).to(self.device).eval()
+            self._dists_metric = metric
         return metric
 
     def nondist_validation(
@@ -68,9 +82,10 @@ class image_multispectral(image):
             self._initialize_best_metric_results(dataset_name)
             self.metric_results = dict.fromkeys(self.metric_results, 0)
 
-        # Per-band PSNR is logged to TensorBoard but not best-tracked (kept out of
-        # metric_results so _initialize_best_metric_results doesn't need it).
+        # Per-band PSNR/SSIM is logged to TensorBoard but not best-tracked (kept out
+        # of metric_results so _initialize_best_metric_results doesn't need it).
         band_psnr_sum: dict[str, float] = {}
+        band_ssim_sum: dict[str, float] = {}
 
         if use_pbar:
             pbar = tqdm(total=len(dataloader), unit="image", colour="green", ascii=" >=")
@@ -106,24 +121,47 @@ class image_multispectral(image):
                 with torch.inference_mode():
                     sr = self.output.detach().clamp(0.0, 1.0).float()
                     gt = self.gt.detach().clamp(0.0, 1.0).float()
+                    n_band = sr.shape[1]
+
+                    # MS-SSIM — primary 4-band structural fidelity (higher better).
                     if "mssim" in self.metric_results:
-                        ms = self._get_mssim(sr.shape[1])
+                        ms = self._get_mssim(n_band)
                         self.metric_results["mssim"] += float(1.0 - ms(sr, gt))
+
+                    # PSNR — mean + per-band (higher better). Sees every band.
                     mse_per_band = ((sr - gt) ** 2).mean(dim=(0, 2, 3))  # (C,)
                     psnr_per_band = 10.0 * torch.log10(
                         1.0 / mse_per_band.clamp_min(1e-12)
                     )
                     if "psnr" in self.metric_results:
                         self.metric_results["psnr"] += float(psnr_per_band.mean())
-                    for c in range(sr.shape[1]):
-                        band = (
-                            self._BAND_NAMES[c]
-                            if c < len(self._BAND_NAMES)
-                            else str(c)
-                        )
-                        band_psnr_sum[band] = band_psnr_sum.get(band, 0.0) + float(
-                            psnr_per_band[c]
-                        )
+                    for c in range(n_band):
+                        band_psnr_sum[self._band(c)] = band_psnr_sum.get(
+                            self._band(c), 0.0
+                        ) + float(psnr_per_band[c])
+
+                    # SSIM — secondary, single-scale; reuses neosr's _ssim, which
+                    # expects [0, 255]. Computed per band (so it still sees NIR),
+                    # tracked as the mean (higher better).
+                    if "ssim" in self.metric_results:
+                        sr_np = sr[0].permute(1, 2, 0).cpu().numpy().astype("float64") * 255.0
+                        gt_np = gt[0].permute(1, 2, 0).cpu().numpy().astype("float64") * 255.0
+                        ssim_bands = [
+                            float(_ssim(sr_np[..., c], gt_np[..., c]))
+                            for c in range(n_band)
+                        ]
+                        self.metric_results["ssim"] += float(np.mean(ssim_bands))
+                        for c in range(n_band):
+                            band_ssim_sum[self._band(c)] = band_ssim_sum.get(
+                                self._band(c), 0.0
+                            ) + ssim_bands[c]
+
+                    # DISTS — secondary, RGB-only perceptual (VGG can't take NIR, so
+                    # it runs on bands [0,1,2] like the dists training loss). LOWER
+                    # is better — config must set better = "lower".
+                    if "dists" in self.metric_results and n_band >= 3:
+                        dists = self._get_dists()
+                        self.metric_results["dists"] += float(dists(sr[:, :3], gt[:, :3]))
 
             # ---- save an N-band uint16 TIFF preview (not an 8-bit PNG) ----
             if save_img:
@@ -173,6 +211,12 @@ class image_multispectral(image):
                 for band, total in band_psnr_sum.items():
                     tb_logger.add_scalar(
                         f"metrics/{dataset_name}/psnr_{band}",
+                        total / num_img,
+                        current_iter,
+                    )
+                for band, total in band_ssim_sum.items():
+                    tb_logger.add_scalar(
+                        f"metrics/{dataset_name}/ssim_{band}",
                         total / num_img,
                         current_iter,
                     )

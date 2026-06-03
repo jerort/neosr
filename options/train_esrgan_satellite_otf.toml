@@ -36,14 +36,23 @@ dataroot_lq = 'D:\datasets\SOTER\ROI_SR\HD15_16bits_OTF\val\lq\'
 [val]
 val_freq = 1000
 # Metrics are computed on the float 4-band tensors by image_multispectral (the
-# stock 8-bit/3-channel path would drop NIR). mssim = MS-SSIM (higher better);
-# psnr = mean over bands. Per-band PSNR (R,G,B,NIR) is also logged to TensorBoard.
+# stock 8-bit/3-channel path would drop NIR). mssim = MS-SSIM, psnr = mean over
+# bands (both see all 4 bands; per-band PSNR/SSIM also go to TensorBoard).
+# ssim/dists are secondary: ssim is single-scale (subsumed by mssim); dists is
+# RGB-only perceptual (bands 0,1,2, NIR-blind, lower better) — watch only, not a
+# selection criterion. Best-checkpoint pick should go by mssim/psnr.
 [val.metrics.mssim]
 type = "mssim"
 better = "higher"
 [val.metrics.psnr]
 type = "psnr"
 better = "higher"
+[val.metrics.ssim]
+type = "ssim"
+better = "higher"
+[val.metrics.dists]
+type = "dists"
+better = "lower"
 
 [path]
 
