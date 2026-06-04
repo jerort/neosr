@@ -90,6 +90,13 @@ def main() -> None:
     )
     parser.add_argument("--output", required=True, help="Output directory.")
     parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="Recurse into subdirectories and mirror the input tree under --output "
+        "(e.g. <region>/<road>/<tile>.tif). Only *.tif/*.tiff are processed; other "
+        "files (angles.csv, ...) and empty dirs are skipped.",
+    )
+    parser.add_argument(
         "--param-key",
         default="auto",
         choices=["auto", "params", "params_ema"],
@@ -131,6 +138,7 @@ def main() -> None:
     ceilings = _load_ceilings(args.scale_json, args.scale_key) if args.scale_json else None
 
     opt, _ = parse_options(str(repo_root), is_train=False)
+    scale = int(opt["scale"])
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -150,14 +158,18 @@ def main() -> None:
     ckpt = {k[7:] if k.startswith("module.") else k: v for k, v in ckpt.items()}
     net.load_state_dict(ckpt, strict=True)
 
-    # Resolve the input list.
+    # Resolve the input list. In --recursive mode keep each file's parent relative
+    # to the input root so the output tree mirrors it; flat mode writes into out_dir.
     in_path = Path(args.input)
     if in_path.is_dir():
+        candidates = in_path.rglob("*") if args.recursive else in_path.iterdir()
         files = sorted(
-            p for p in in_path.iterdir() if p.suffix.lower() in (".tif", ".tiff")
+            p for p in candidates if p.suffix.lower() in (".tif", ".tiff")
         )
+        in_root = in_path
     else:
         files = [in_path]
+        in_root = in_path.parent
     if not files:
         print(f"No .tif/.tiff files found at {in_path}")
         sys.exit(1)
@@ -170,15 +182,29 @@ def main() -> None:
         tensor = (
             torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).to(device).float()
         )
+        # esrgan's pixel_unshuffle (scale=2) needs H,W divisible by scale. Road tiles
+        # can be odd (e.g. 67x171), so reflect-pad to the next multiple, then crop the
+        # output back to exactly scale*H x scale*W.
+        _, _, h, w = tensor.shape
+        ph, pw = (-h) % scale, (-w) % scale
+        if ph or pw:
+            tensor = torch.nn.functional.pad(tensor, (0, pw, 0, ph), mode="reflect")
         with torch.inference_mode():
             out = net(tensor)
+        if ph or pw:
+            out = out[..., : h * scale, : w * scale]
         out_hwc = out.squeeze(0).permute(1, 2, 0).clamp(0, 1).cpu().numpy()
+        rel_parent = src.relative_to(in_root).parent  # "." for flat input
+        out_subdir = out_dir / rel_parent
+        out_subdir.mkdir(parents=True, exist_ok=True)
         out_name = f"{src.stem}{args.suffix}.tif"
+        out_path = out_subdir / out_name
         if ceilings is not None:
-            write_tiff_dn(out_dir / out_name, out_hwc.astype(np.float32), ceilings)
+            write_tiff_dn(out_path, out_hwc.astype(np.float32), ceilings)
         else:
-            write_tiff(out_dir / out_name, out_hwc.astype(np.float32))
-        print(f"[{i}/{len(files)}] {src.name} -> {out_name}  {out_hwc.shape}")
+            write_tiff(out_path, out_hwc.astype(np.float32))
+        rel_disp = src.relative_to(in_root)
+        print(f"[{i}/{len(files)}] {rel_disp} -> {out_hwc.shape}")
 
     units = "raw DN (float32)" if ceilings is not None else "uint16 tile encoding"
     print(f"Done. {len(files)} image(s) written to {out_dir} as {units}.")
