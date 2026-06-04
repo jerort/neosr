@@ -46,20 +46,48 @@ def read_tiff_bytes(content: bytes) -> np.ndarray:
     return arr.astype(np.float32) / UINT16_MAX
 
 
+def _imwrite_tiff(path: str | Path, out: np.ndarray) -> None:
+    """Write an (H, W) or (H, W, C) array as a display-friendly TIFF.
+
+    Bands 1-3 are tagged RGB so file browsers (Explorer) show a natural-colour
+    thumbnail (the data is in R, G, B, NIR order), while any further band — NIR
+    here — is written as an UNSPECIFIED extra sample: plain data, NOT alpha. That
+    distinction matters because tifffile's default for a 4-channel array is RGBA
+    with the 4th band as alpha (ExtraSamples=UNASSALPHA), which makes GIS tools
+    (QGIS) apply NIR as a transparency mask and render garbage. UNSPECIFIED keeps
+    every band readable as data. <=2-band arrays fall back to MINISBLACK. This
+    mirrors the SOTER pipeline's GDAL colorinterp ([Red, Green, Blue, Undefined]).
+    """
+    n = out.shape[-1] if out.ndim == 3 else 1
+    if n >= 3:
+        kwargs = {"photometric": "rgb"}
+        if n > 3:
+            kwargs["extrasamples"] = ("unspecified",) * (n - 3)
+        tifffile.imwrite(str(path), out, **kwargs)
+    elif n == 2:
+        tifffile.imwrite(
+            str(path), out, photometric="minisblack", extrasamples=("unspecified",)
+        )
+    else:
+        tifffile.imwrite(str(path), out, photometric="minisblack")
+
+
 def write_tiff(path: str | Path, arr: np.ndarray) -> None:
     """Inverse of read_tiff: take a float (H, W, C) array in [0, 1] and write a
     uint16 TIFF, preserving channel count and 16-bit depth.
 
     Values are clipped to [0, 1] and scaled by 65535. A single-channel array may
     be (H, W) or (H, W, 1); the trailing axis is squeezed so it writes as a plain
-    grayscale TIFF. Geospatial metadata (CRS/transform) is NOT carried — this only
-    preserves pixel values, bands, and bit depth.
+    grayscale TIFF. Bands are tagged RGB (+ UNSPECIFIED extras) via _imwrite_tiff
+    so a 4-band tile shows as colour in file browsers while staying fully readable
+    in GIS (NIR is not mistagged as alpha). Geospatial metadata (CRS/transform) is
+    NOT carried — this only preserves pixel values, bands, and bit depth.
     """
     arr = np.clip(arr, 0.0, 1.0)
     out = np.rint(arr * UINT16_MAX).astype(np.uint16)
     if out.ndim == 3 and out.shape[-1] == 1:
         out = out[..., 0]
-    tifffile.imwrite(str(path), out)
+    _imwrite_tiff(path, out)
 
 
 def write_tiff_dn(path: str | Path, arr: np.ndarray, ceilings: Sequence[float]) -> None:
@@ -87,4 +115,4 @@ def write_tiff_dn(path: str | Path, arr: np.ndarray, ceilings: Sequence[float]) 
     out = (arr * np.asarray(ceilings, dtype=np.float32)).astype(np.float32)
     if out.shape[-1] == 1:
         out = out[..., 0]
-    tifffile.imwrite(str(path), out)
+    _imwrite_tiff(path, out)

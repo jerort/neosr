@@ -2,6 +2,7 @@
 __pycache__/
 .ruff_cache/
 .mypy_cache/
+.idea/
 experiments/*
 options/tmp/
 neosr/metrics/topiq_fr_weights.pth
