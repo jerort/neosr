@@ -13,8 +13,8 @@ Usage:
     python scripts/inference/infer_multispectral.py \
         -opt options/train_esrgan_satellite_otf.toml \
         --model experiments/train_esrgan_satellite_otf/models/net_g_200000.pth \
-        --input  D:/datasets/SOTER/ROI_SR/HD15_16bits_OTF/val/lq \
-        --output D:/datasets/SOTER/ROI_SR/HD15_16bits_OTF/val/sr
+        --input  D:/datasets/SOTER/ROI_SR/16bits/HD15_16bits_OTF/val/lq \
+        --output D:/datasets/SOTER/ROI_SR/16bits/HD15_16bits_OTF/val/sr
 
 Input must already be in the model's uint16 tile encoding (read_tiff divides by
 65535). To run on raw native imagery, pre-scale it with the per-band ceilings in
@@ -23,7 +23,7 @@ scale.json first (same step used to build the training tiles).
 By default the output is uint16 in the same tile encoding as the input. Pass
 --scale-json to instead write float32 TIFFs in raw DN units (undoing the per-band
 ceiling rescale: DN = value * ceiling), which is what the rater expects:
-    ... --scale-json D:/datasets/SOTER/ROI_SR/HD15_16bits_OTF/gt/scale.json \
+    ... --scale-json D:/datasets/SOTER/ROI_SR/16bits/HD15_16bits_OTF/gt/scale.json \
         --scale-key <hd15_source_filename>
 """
 

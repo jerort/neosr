@@ -15,7 +15,7 @@ fast_matmul = true
 
 [datasets.train]
 type = "otf_multispectral"
-dataroot_gt = 'D:\datasets\SOTER\ROI_SR\HD15_16bits_OTF\gt\'
+dataroot_gt = 'D:\datasets\SOTER\ROI_SR\16bits\HD15_16bits_OTF\gt\'
 patch_size = 64
 batch_size = 8
 augmentation = [ "none", "mixup", "cutmix", "resizemix", "cutblur" ]
@@ -30,8 +30,8 @@ downscale_mode = "bicubic"        # "bicubic" | "bilinear" | "area" | "nearest"
 [datasets.val]
 name = "val"
 type = "paired_multispectral"
-dataroot_gt = 'D:\datasets\SOTER\ROI_SR\HD15_16bits_OTF\val\gt\'
-dataroot_lq = 'D:\datasets\SOTER\ROI_SR\HD15_16bits_OTF\val\lq\'
+dataroot_gt = 'D:\datasets\SOTER\ROI_SR\16bits\HD15_16bits_OTF\val\gt\'
+dataroot_lq = 'D:\datasets\SOTER\ROI_SR\16bits\HD15_16bits_OTF\val\lq\'
 
 [val]
 val_freq = 1000
